@@ -62,10 +62,14 @@ class LightweightHandServer:
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.server_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self.server_socket.bind(('0.0.0.0', self.port))
-            self.server_socket.listen(5)
+            self.server_socket.listen(10)  # Increased from 5 to 10
             
             self.server_running = True
-            print(f"Server listening on port {self.port}")
+            
+            # Get local IP
+            local_ip = self.get_local_ip()
+            print(f"Server listening on 0.0.0.0:{self.port}")
+            print(f"Connect from other devices using: {local_ip}:{self.port}")
             
             # Accept clients in thread
             threading.Thread(target=self.accept_clients, daemon=True).start()
@@ -73,6 +77,17 @@ class LightweightHandServer:
         except Exception as e:
             print(f"Server error: {e}")
             return False
+    
+    def get_local_ip(self):
+        """Get local IP address"""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except:
+            return "127.0.0.1"
     
     def accept_clients(self):
         """Accept client connections"""
@@ -82,10 +97,12 @@ class LightweightHandServer:
                 client_socket, address = self.server_socket.accept()
                 client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 self.clients.append(client_socket)
-                print(f"Client connected: {address}")
+                print(f"✓ Client connected: {address} | Total clients: {len(self.clients)}")
             except socket.timeout:
                 continue
-            except:
+            except Exception as e:
+                if self.server_running:
+                    print(f"Accept error: {e}")
                 break
     
     def process_frame(self):
@@ -152,22 +169,26 @@ class LightweightHandServer:
             for client in self.clients:
                 try:
                     client.sendall(message)
-                except:
+                except Exception as e:
+                    print(f"✗ Client disconnected: {e}")
                     disconnected.append(client)
             
             # Remove disconnected
             for client in disconnected:
                 if client in self.clients:
                     self.clients.remove(client)
+                    print(f"Removed client | Remaining: {len(self.clients)}")
                 try:
                     client.close()
                 except:
                     pass
-        except:
-            pass
+        except Exception as e:
+            print(f"Broadcast error: {e}")
     
     def display_feed(self, frame, hands_detected):
         """Display live video feed"""
+        import time
+        
         # Add info overlay
         cv2.putText(frame, f"Hands: {hands_detected}", (10, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
