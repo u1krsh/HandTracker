@@ -8,6 +8,7 @@ import socket
 import pickle
 import struct
 import threading
+import numpy as np
 
 class LightweightHandServer:
     def __init__(self):
@@ -20,6 +21,8 @@ class LightweightHandServer:
             min_tracking_confidence=0.5,
             model_complexity=0  # Fastest model
         )
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.mp_drawing_styles = mp.solutions.drawing_styles
         
         # Camera
         self.cap = None
@@ -31,6 +34,10 @@ class LightweightHandServer:
         self.server_running = False
         self.clients = []
         self.port = 5555
+        
+        # Live feed
+        self.show_feed = True
+        self.window_name = "Hand Tracking - Live Feed"
         
     def start_camera(self, camera_index=0):
         """Start camera capture"""
@@ -96,8 +103,22 @@ class LightweightHandServer:
         
         # Extract only landmarks (minimal data)
         landmarks_list = []
+        hands_detected = 0
+        
         if results.multi_hand_landmarks:
+            hands_detected = len(results.multi_hand_landmarks)
             for hand_landmarks in results.multi_hand_landmarks:
+                # Draw on frame for live feed
+                if self.show_feed:
+                    self.mp_drawing.draw_landmarks(
+                        frame,
+                        hand_landmarks,
+                        self.mp_hands.HAND_CONNECTIONS,
+                        self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=3),
+                        self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
+                    )
+                
+                # Extract landmarks
                 landmarks_data = []
                 for landmark in hand_landmarks.landmark:
                     landmarks_data.append({
@@ -106,6 +127,10 @@ class LightweightHandServer:
                         'z': landmark.z
                     })
                 landmarks_list.append(landmarks_data)
+        
+        # Show live feed
+        if self.show_feed:
+            self.display_feed(frame, hands_detected)
         
         # Send to clients (landmarks only, no frame data)
         if self.clients:
@@ -141,6 +166,32 @@ class LightweightHandServer:
         except:
             pass
     
+    def display_feed(self, frame, hands_detected):
+        """Display live video feed"""
+        # Add info overlay
+        cv2.putText(frame, f"Hands: {hands_detected}", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(frame, f"Clients: {len(self.clients)}", (10, 70), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(frame, "Press 'Q' to quit | 'H' to hide feed", (10, frame.shape[0] - 10), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        
+        # Show frame
+        cv2.imshow(self.window_name, frame)
+        
+        # Handle keyboard
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            self.is_running = False
+        elif key == ord('h'):
+            self.show_feed = False
+            cv2.destroyWindow(self.window_name)
+        elif key == ord('s'):
+            # Screenshot
+            filename = f"hand_tracking_{int(time.time())}.png"
+            cv2.imwrite(filename, frame)
+            print(f"Screenshot saved: {filename}")
+    
     def run(self):
         """Main loop"""
         import time
@@ -150,7 +201,11 @@ class LightweightHandServer:
         print("=" * 60)
         print(f"Server: localhost:{self.port}")
         print("Optimized for minimal memory and instant response")
-        print("Press Ctrl+C to stop")
+        print("")
+        print("CONTROLS:")
+        print("  Q - Quit")
+        print("  H - Hide live feed")
+        print("  S - Save screenshot")
         print("=" * 60)
         
         fps_counter = 0
@@ -189,6 +244,7 @@ class LightweightHandServer:
             except:
                 pass
         
+        cv2.destroyAllWindows()
         print("Server stopped")
 
 if __name__ == "__main__":
